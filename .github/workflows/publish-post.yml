@@ -24,10 +24,8 @@ jobs:
 
     - name: Install blog CLI
       run: |
-        # Install your blog CLI tool
-        # This assumes your CLI is published to npm or GitHub packages
-        # Adjust based on your actual CLI installation method
-        git clone https://github.com/your-username/blog-cli.git
+        # Install your blog CLI tool from GitHub
+        git clone https://github.com/Awannaphasch2016/blog-cli.git
         cd blog-cli
         npm install
         npm link
