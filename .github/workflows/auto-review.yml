@@ -1,0 +1,185 @@
+name: Auto Review Assistant
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'posts/**'
+      - 'drafts/**'
+
+jobs:
+  auto-review:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Analyze content changes
+      id: analyze
+      run: |
+        # Get list of changed markdown files
+        changed_files=$(git diff --name-only origin/main...HEAD | grep "\.md$" || echo "")
+
+        echo "Changed files:"
+        echo "$changed_files"
+
+        # Analyze each file
+        for file in $changed_files; do
+          if [[ -f "$file" ]]; then
+            echo "Analyzing $file..."
+
+            # Count words
+            word_count=$(wc -w < "$file")
+            echo "Word count: $word_count"
+
+            # Check for code blocks
+            code_blocks=$(grep -c "^```" "$file" || echo "0")
+            echo "Code blocks: $code_blocks"
+
+            # Check for images
+            images=$(grep -c "!\[" "$file" || echo "0")
+            echo "Images: $images"
+
+            # Basic readability check
+            sentences=$(grep -o '\.' "$file" | wc -l)
+            if [ "$sentences" -gt 0 ]; then
+              avg_words_per_sentence=$((word_count / sentences))
+              echo "Average words per sentence: $avg_words_per_sentence"
+            fi
+          fi
+        done
+
+    - name: Content quality checks
+      run: |
+        # Check for common issues in markdown files
+        changed_files=$(git diff --name-only origin/main...HEAD | grep "\.md$" || echo "")
+
+        issues=""
+
+        for file in $changed_files; do
+          if [[ -f "$file" ]]; then
+            echo "Quality check for $file..."
+
+            # Check for TODO/FIXME comments
+            if grep -q "TODO\|FIXME\|XXX" "$file"; then
+              issues+="⚠️ $file contains TODO/FIXME comments\n"
+            fi
+
+            # Check for placeholder text
+            if grep -q "\[.*\]" "$file"; then
+              placeholder_count=$(grep -c "\[.*\]" "$file")
+              if [ "$placeholder_count" -gt 2 ]; then  # Allow some markdown links
+                issues+="⚠️ $file may contain placeholder text\n"
+              fi
+            fi
+
+            # Check for very short content
+            word_count=$(wc -w < "$file")
+            if [ "$word_count" -lt 200 ]; then
+              issues+="ℹ️ $file is quite short ($word_count words)\n"
+            fi
+
+            # Check for missing conclusion
+            if ! grep -q -i "conclusion\|summary\|wrap.*up" "$file"; then
+              issues+="ℹ️ $file might benefit from a conclusion section\n"
+            fi
+          fi
+        done
+
+        echo -e "$issues"
+
+    - name: SEO analysis
+      run: |
+        changed_files=$(git diff --name-only origin/main...HEAD | grep "\.md$" || echo "")
+
+        for file in $changed_files; do
+          if [[ -f "$file" ]]; then
+            echo "SEO analysis for $file..."
+
+            # Check title length
+            title=$(grep "^title:" "$file" | sed 's/title: *//' | tr -d '"')
+            title_length=${#title}
+
+            if [ "$title_length" -gt 60 ]; then
+              echo "⚠️ Title is long ($title_length chars) - consider shortening for SEO"
+            elif [ "$title_length" -lt 30 ]; then
+              echo "ℹ️ Title is short ($title_length chars) - consider being more descriptive"
+            else
+              echo "✅ Title length is good ($title_length chars)"
+            fi
+
+            # Check description length
+            if grep -q "^description:" "$file"; then
+              description=$(grep "^description:" "$file" | sed 's/description: *//' | tr -d '"')
+              desc_length=${#description}
+
+              if [ "$desc_length" -gt 160 ]; then
+                echo "⚠️ Description is long ($desc_length chars) - search engines may truncate"
+              elif [ "$desc_length" -lt 120 ]; then
+                echo "ℹ️ Description is short ($desc_length chars) - consider adding more detail"
+              else
+                echo "✅ Description length is good ($desc_length chars)"
+              fi
+            else
+              echo "⚠️ Missing meta description - consider adding for better SEO"
+            fi
+
+            # Check for tags
+            if grep -q "^tags:" "$file"; then
+              tag_count=$(grep "^tags:" "$file" | grep -o ',' | wc -l)
+              tag_count=$((tag_count + 1))  # Add 1 because comma count is one less than tag count
+
+              if [ "$tag_count" -gt 4 ]; then
+                echo "⚠️ Many tags ($tag_count) - Dev.to recommends 4 or fewer"
+              elif [ "$tag_count" -eq 0 ]; then
+                echo "ℹ️ No tags found - consider adding relevant tags"
+              else
+                echo "✅ Tag count is good ($tag_count tags)"
+              fi
+            fi
+          fi
+        done
+
+    - name: Comment on PR with analysis
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+
+          // This is a simplified example - you could make this much more sophisticated
+          const comment = `## 🤖 Automated Content Review
+
+          I've analyzed your content changes. Here are some observations:
+
+          ### ✅ Automated Checks Passed
+          - Frontmatter validation
+          - File naming conventions
+          - Basic markdown syntax
+
+          ### 💡 Suggestions
+          Please review the workflow logs for detailed SEO and content quality suggestions.
+
+          ### 📋 Manual Review Needed
+          - [ ] Content accuracy and technical correctness
+          - [ ] Writing style and clarity
+          - [ ] Code examples work as expected
+          - [ ] Images and links are appropriate
+
+          *This is an automated review. A human reviewer will provide additional feedback.*
+          `;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });

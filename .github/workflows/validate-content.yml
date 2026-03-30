@@ -1,0 +1,91 @@
+name: Validate Content
+
+on:
+  pull_request:
+    paths:
+      - 'posts/**'
+      - 'drafts/**'
+      - 'templates/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'posts/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Validate markdown files
+      run: |
+        # Find all markdown files in posts and drafts
+        find posts drafts -name "*.md" -type f | while read file; do
+          echo "Validating $file..."
+
+          # Check if file has frontmatter
+          if ! grep -q "^---" "$file"; then
+            echo "ERROR: $file is missing frontmatter"
+            exit 1
+          fi
+
+          # Check if title exists in frontmatter
+          if ! grep -A 20 "^---" "$file" | grep -q "^title:"; then
+            echo "ERROR: $file is missing title in frontmatter"
+            exit 1
+          fi
+
+          # Validate frontmatter syntax using node script
+          node scripts/validate-frontmatter.mjs "$file"
+        done
+
+    - name: Check for broken links
+      run: |
+        # Install markdown-link-check if not in package.json
+        npm install -g markdown-link-check
+
+        # Check links in all markdown files
+        find posts drafts -name "*.md" -type f -exec markdown-link-check {} \;
+
+    - name: Lint markdown
+      run: |
+        # Install markdownlint if not in package.json
+        npm install -g markdownlint-cli
+
+        # Lint all markdown files
+        markdownlint posts/**/*.md drafts/**/*.md --config .markdownlint.json || true
+
+    - name: Check file naming convention
+      run: |
+        # Check posts follow YYYY-MM-DD-title.md pattern
+        for file in posts/*.md; do
+          if [[ -f "$file" ]]; then
+            filename=$(basename "$file")
+            if ! [[ "$filename" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-.+\.md$ ]]; then
+              echo "ERROR: $file doesn't follow naming convention YYYY-MM-DD-title.md"
+              exit 1
+            fi
+          fi
+        done
+
+    - name: Validate post status
+      run: |
+        # Check that posts in posts/ have published: true
+        for file in posts/*.md; do
+          if [[ -f "$file" ]]; then
+            if grep -A 20 "^---" "$file" | grep -q "published: false"; then
+              echo "WARNING: $file in posts/ directory has published: false"
+            fi
+          fi
+        done

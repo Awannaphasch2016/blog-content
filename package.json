@@ -1,0 +1,39 @@
+{
+  "name": "blog-content",
+  "version": "1.0.0",
+  "description": "Content repository for blog posts with automated publishing workflow",
+  "type": "module",
+  "scripts": {
+    "validate": "node scripts/validate-frontmatter.mjs",
+    "new-post": "node scripts/generate-post.mjs",
+    "publish-hook": "node scripts/publish-hook.mjs",
+    "lint": "markdownlint posts/**/*.md drafts/**/*.md --config .markdownlint.json",
+    "link-check": "markdown-link-check posts/**/*.md drafts/**/*.md",
+    "serve": "npx serve . -p 3000",
+    "stats": "find posts -name '*.md' | wc -l && echo 'total posts' && find drafts -name '*.md' | wc -l && echo 'drafts'"
+  },
+  "keywords": [
+    "blog",
+    "content",
+    "markdown",
+    "devto",
+    "publishing",
+    "automation"
+  ],
+  "dependencies": {
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "markdownlint-cli": "^0.37.0",
+    "markdown-link-check": "^3.11.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/blog-content.git"
+  },
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT"
+}

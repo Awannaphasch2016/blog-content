@@ -1,0 +1,110 @@
+name: Publish Post to Dev.to
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'posts/**'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, 'publish:') || contains(github.event.head_commit.added, 'posts/')
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2  # Need to compare with previous commit
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install blog CLI
+      run: |
+        # Install your blog CLI tool
+        # This assumes your CLI is published to npm or GitHub packages
+        # Adjust based on your actual CLI installation method
+        git clone https://github.com/your-username/blog-cli.git
+        cd blog-cli
+        npm install
+        npm link
+
+    - name: Setup environment
+      env:
+        DEV_IO_API_TOKEN: ${{ secrets.DEV_IO_API_TOKEN }}
+        SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      run: |
+        # Export environment variables for the CLI
+        echo "DEV_IO_API_TOKEN=$DEV_IO_API_TOKEN" >> $GITHUB_ENV
+        echo "SUPABASE_DATABASE_URL=$SUPABASE_DATABASE_URL" >> $GITHUB_ENV
+
+    - name: Detect changed posts
+      id: changes
+      run: |
+        # Find added or modified markdown files in posts/
+        changed_files=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD | grep "^posts/.*\.md$" || echo "")
+
+        echo "Changed files: $changed_files"
+        echo "files<<EOF" >> $GITHUB_OUTPUT
+        echo "$changed_files" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Validate posts before publishing
+      if: steps.changes.outputs.files != ''
+      run: |
+        echo "${{ steps.changes.outputs.files }}" | while read -r file; do
+          if [[ -n "$file" && -f "$file" ]]; then
+            echo "Validating $file..."
+            blog validate "$file" --json
+
+            if [ $? -ne 0 ]; then
+              echo "ERROR: Validation failed for $file"
+              exit 1
+            fi
+          fi
+        done
+
+    - name: Publish posts
+      if: steps.changes.outputs.files != ''
+      run: |
+        echo "${{ steps.changes.outputs.files }}" | while read -r file; do
+          if [[ -n "$file" && -f "$file" ]]; then
+            echo "Publishing $file..."
+
+            # Check if post should be published
+            if grep -A 20 "^---" "$file" | grep -q "published: true"; then
+              blog publish "$file" --json
+
+              if [ $? -eq 0 ]; then
+                echo "✅ Successfully published $file"
+              else
+                echo "❌ Failed to publish $file"
+                exit 1
+              fi
+            else
+              echo "ℹ️ Skipping $file (published: false)"
+            fi
+          fi
+        done
+
+    - name: Update repository with publication info
+      if: steps.changes.outputs.files != ''
+      run: |
+        # Check if any files were actually published and update status
+        # This could involve updating a tracking file or database
+        echo "Publication workflow completed"
+
+    - name: Notify on success
+      if: success()
+      run: |
+        echo "✅ Blog post(s) successfully published to Dev.to"
+        # Could add Slack notification, Discord webhook, etc.
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ Blog post publication failed"
+        # Could add error notification to monitoring system
